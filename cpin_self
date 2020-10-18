@@ -1,0 +1,25 @@
+int cpin (char * externalfile, char* v6_file){
+	int fde;
+	int fdv6;
+	if(fdv6 = open(v6_file, O_RDONLY | O_CRETAE, 0700) == -1){
+		printf("\n open() failed with the following error [%s]\n",strerror(errno));
+        return 0;
+	}
+	if(fde = open(externalfile, O_RDWR, 0600) == -1){
+		printf("\n fail opening external file [%s]\n", strerror(errno));
+	}
+	// Get the block number allocated for the newly created file
+	super_block.nfree--;
+	int freeIndex = super_block.free[super_block.nfree];
+	if(super_block.nfree == 0){
+		int temp[FREE_SIZE + 1];
+		lseek(fileDescriptor, freeIndex * BLOCK_SIZE, 0);
+		read(fileDescriptor, temp, FREE_SIZE * BLOCK_SIZE);
+		super_block.nfree = temp[0];
+		for(int j = 0; j < super_block.nfree; j ++){
+			super_block.free[j] = temp[j + 1];
+		}
+	}
+	lseek(fileDescriptor, super_block.isize * BLOCK_SIZE, 0);
+	wrtie(fileDescriptor, externalfile, BLOCK_SIZE);
+}
