@@ -74,7 +74,8 @@ const unsigned short dir_flag = 040000;
 const unsigned short dir_large_file = 010000;
 const unsigned short dir_access_rights = 000777; // User, Group, & World have all access privileges 
 const unsigned short INODE_SIZE = 64; // inode has been doubled
-
+//int inodeNum;  //JZ: New added variable to record the size of inodes array when requesting less than 200 inodes at the initialization
+//int realInode; //JZ: New added variable to record the number of inodes when requesting less than 200 inodes at the initialization
 
 int initfs(char* path, unsigned short total_blcks,unsigned short total_inodes);
 void add_block_to_free_list( int blocknumber , unsigned int *empty_buffer );
@@ -105,22 +106,23 @@ int main() {
 		char *xv6file = strtok(NULL, " ");
 		if(cpin(externalfile, xv6file) == -1){
 			printf("Failing to copy external file %s to xv6 file %s.\n", externalfile, xv6file);
+			printf(">> ");
 		}
 		splitter = NULL;
 	}
 	else if(strcmp(splitter, "cpout") == 0){
 		char *xv6file = strtok(NULL, " ");
 		char *externalfile = strtok(NULL, " ");
-		if(cpout(xv6file, externalfile) == -1)
+		if(cpout(xv6file, externalfile) == -1){
 			printf("Failing to copy xv6 file %s to external file %s.\n", xv6file, externalfile);
+			printf(">> ");
+		}
 		splitter = NULL;
 	}
 	else if (strcmp(splitter, "q") == 0) {
-   
        lseek(fileDescriptor, BLOCK_SIZE, 0);
        write(fileDescriptor, &superBlock, BLOCK_SIZE);
-       return 0;
-     
+       return 0;   
     }
   }
 }
@@ -138,18 +140,27 @@ int preInitialization(){
       
   if(access(filepath, F_OK) != -1) {
       
-      if(fileDescriptor = open(filepath, O_RDWR, 0600) == -1){
+      if((fileDescriptor = open(filepath, O_RDWR, 0600)) == -1){ //JZ:Correct the typo
       
          printf("\n filesystem already exists but open() failed with error [%s]\n", strerror(errno));
          return 1;
       }
+	  //JZ: To load the existing file system.
+	  lseek(fileDescriptor, BLOCK_SIZE, SEEK_SET);
+	  read(fileDescriptor, &superBlock, BLOCK_SIZE);
       printf("filesystem already exists and the same will be used.\n");
-  
+	  printf("Fsize: %d.\n", superBlock.fsize);
+	  printf("Index for inode array: %d\n", superBlock.ninode);
+	  printf("Isize: %d\n", superBlock.isize);
+	  read(fileDescriptor, &inode, 64);
+	printf("Finish restoring previous file system.\n");
+	printf(">> ");
   } else {
   
-        	if (!n1 || !n2)
+        	if (!n1 || !n2){
               printf(" All arguments(path, number of inodes and total number of blocks) have not been entered\n");
-            
+			  printf(">> ");
+            }
        		else {
           		numBlocks = atoi(n1);
           		numInodes = atoi(n2);
@@ -164,11 +175,10 @@ int preInitialization(){
        		}
   }
 }
-int inodeNum;  //JZ: New added variable to record the size of inodes array when requesting less than 200 inodes at the initialization
-int realInode; //JZ: New added variable to record the number of inodes when requesting less than 200 inodes at the initialization
+
 int initfs(char* path, unsigned short blocks,unsigned short inodes) {
 	
-	realInode = inodes;
+	//realInode = inodes; //JZ:deleted
    unsigned int buffer[BLOCK_SIZE/4];
    int bytes_written;
    
@@ -195,7 +205,7 @@ int initfs(char* path, unsigned short blocks,unsigned short inodes) {
 		superBlock.ninode = inodes;
 	else
 		superBlock.ninode = 200;
-	inodeNum = superBlock.ninode; //JZ: New added line for the case when starting number of inodes less than 200
+	//inodeNum = superBlock.ninode; //JZ: New added line for the case when starting number of inodes less than 200
    for (i = 0; i < superBlock.ninode; i++)
 	    superBlock.inode[i] = i + 1;		//Initializing the inode array to inode numbers
    
@@ -217,8 +227,8 @@ int initfs(char* path, unsigned short blocks,unsigned short inodes) {
    	  write(fileDescriptor, buffer, BLOCK_SIZE);
    }
    
-   int data_blocks = blocks - 2 - superBlock.isize;
-   int data_blocks_for_free_list = data_blocks - 1;
+   //int data_blocks = blocks - 2 - superBlock.isize; //JZ:Deleted
+   int data_blocks_for_free_list = superBlock.fsize;
    
    // Create root directory
    create_root();
@@ -226,7 +236,9 @@ int initfs(char* path, unsigned short blocks,unsigned short inodes) {
    for ( i = 2 + superBlock.isize + 1; i < data_blocks_for_free_list; i++ ) {
       add_block_to_free_list(i , buffer);
    }
-   
+   //JZ: Write superblock to file system
+   lseek(fileDescriptor, BLOCK_SIZE, SEEK_SET);
+   write(fileDescriptor, &superBlock, BLOCK_SIZE);
    return 1;
 }
 
@@ -303,6 +315,31 @@ int savesuper_block() {
     write(fileDescriptor, &superBlock, sizeof(superblock_type));
     return 0;
 }
+//JZ:Methods for printing file names in root directory
+int printfile(){
+	inode_type rootInode;
+	dir_type curDir;
+	int i, j;
+	lseek(fileDescriptor, 2*BLOCK_SIZE, SEEK_SET);
+	read(fileDescriptor, &rootInode, 64);
+	printf("Files in file system: ");
+	for(i = 0; i < ADDR_SIZE; i++){
+		if(rootInode.addr[i] == 0)
+			break;
+		lseek(fileDescriptor, rootInode.addr[i] * BLOCK_SIZE, SEEK_SET);
+		for(j = 0; j < BLOCK_SIZE / 16; j++){
+			read(fileDescriptor, &curDir, 16);
+			if(curDir. inode == 0){
+				break;
+			}
+			if(strcmp(curDir.filename, ".") != 0 && strcmp(curDir.filename, "..") != 0){
+				printf(" %s ", curDir.filename);
+			}
+		}
+	}
+	printf("\n");
+	return 1;
+}
 int cpin(char *externalfile, char *v6_file){
 	int fde;
 	int x;
@@ -321,7 +358,11 @@ int cpin(char *externalfile, char *v6_file){
 	//Add i_number and newly created file name to root directory
 	addToRoot(inum, v6_file);
 	//increase the nlinks of rootinode by 1
-	inode.nlinks++;
+	//JZ:Change the code to prevent error when reuse
+	/*lseek(fileDescriptor, 2* BLOCK_SIZE, SEEK_SET);
+	inode_type rootInode;
+	read(fileDescriptor, &rootInode, 64);
+	rootInode.nlinks++;*/
 	//construct a new inode of the file
 	inode_type newInode;
 	//Implement the inode for the newly created file
@@ -367,6 +408,7 @@ int cpin(char *externalfile, char *v6_file){
 	lseek(fileDescriptor, writeInode * 64, SEEK_CUR);
 	write(fileDescriptor, &newInode, 64);
 	printf("File %s was successfully created.\n", v6_file);
+	printfile();
 	printf(">> ");
 	return 1;
 }
@@ -394,16 +436,32 @@ int allocateData(){
 	}
 	//decrease the nfree by 1 and return the block# pointed by free[nfree]
 	superBlock.nfree--;
+	//JZ:Save superblock
 	savesuper_block();
 	return superBlock.free[superBlock.nfree];
 }
 /*method to allocate inode for new file, return the # of inode being allocated*/
+ //JZ: Method for allocating inode when superBlock.ninode == 0.
  int allocateIno (){
-	int i;
+	int i, inodeNum; //JZ:inodeNum is for when the starting number of inode less than 200 
 	inode_type curInode;
 	if(superBlock.ninode == 0){
+		for(i = 0; i < I_SIZE; i++){
+			if(superBlock.inode[i] == 0){
+				inodeNum = i;
+				break;
+			}
+		}
+		inodeNum++;
 		lseek(fileDescriptor, 2 * BLOCK_SIZE, SEEK_SET);
-		for(i = 1; i <= realInode; i++){
+		for(i = 1; i <= inodeNum && i <= I_SIZE; i++){
+			read(fileDescriptor, &curInode, 64);
+			if(curInode.flags & 0100000 == 0){
+				superBlock.inode[superBlock.ninode] = i;
+				superBlock.ninode++;
+			}
+		}
+		/*for(i = 1; i <= realInode; i++){
 			read(fileDescriptor, &curInode, 64);
 			if(curInode.flags & 0100000 == 0){
 				superBlock.inode[superBlock.ninode] = i;  
@@ -411,15 +469,15 @@ int allocateData(){
 				if(superBlock.ninode >= inodeNum)
 					break;
 			}
-		}
+		}*///JZ:Deleted
 		
 	}
 	if(superBlock.ninode == 0){
-		printf("Run out off inode.\n");
+		printf("Run out off inode. Exiting.\n");
 		return -1;
 	}
 	superBlock.ninode--;
-	savesuper_block();
+	savesuper_block();//JZ: Change according to YS
 	return superBlock.inode[superBlock.ninode];
 }
 
@@ -428,6 +486,7 @@ int addToRoot(int inodeno, char* fileN){
 	int i, j;
 	dir_type direct;
 	inode_type rootInode;
+	int newData;//JZ:
 	lseek(fileDescriptor, 2 * BLOCK_SIZE, SEEK_SET);
 	read(fileDescriptor, &rootInode, INODE_SIZE);
 	for(i = 0; i < ADDR_SIZE; i++){
@@ -441,9 +500,18 @@ int addToRoot(int inodeno, char* fileN){
 		}
 	}
 	printf("There is no file with same name in the file system. Continue...\n");
+	rootInode.nlinks++;
 	dir_type currentDir;
 	for(i = 0; i < ADDR_SIZE; i++){
-		lseek(fileDescriptor, BLOCK_SIZE * rootInode.addr[i], 0); //Go the data block pointed by root inode which contains dir entries
+		//JZ: Escape the two-layer loop when fileFlag is true
+		if(fileFlag == 1)
+			break;
+		//JZ: When the first data block of root directory has been used up, allocate new data block to root directory.
+		if(rootInode.addr[i] == 0){
+			newData = allocateData();
+			rootInode.addr[i] = newData;
+		}
+		lseek(fileDescriptor, BLOCK_SIZE * rootInode.addr[i], SEEK_SET); //Go the data block pointed by root inode which contains dir entries
 		for( j = 0; j < (BLOCK_SIZE / sizeof(dir_type)); j++){
 			read(fileDescriptor, &currentDir, 16);
 			if(currentDir.inode == 0){//Available entry founnd
@@ -451,12 +519,21 @@ int addToRoot(int inodeno, char* fileN){
 				strcpy(currentDir.filename, fileN);
 				lseek(fileDescriptor, -16, SEEK_CUR);
 				write(fileDescriptor, &currentDir, 16);
+				//JZ: Set the fileFlag to 1 when file added.
+				fileFlag = 1;
 				break;
 			}				
-			else
-				lseek(fileDescriptor, 16, SEEK_CUR);
+			/*else
+				lseek(fileDescriptor, 16, SEEK_CUR);*/ //JZ:Deleted since read will also move the filedescriptor.
 		}
 	}
+	if(fileFlag == 0){
+		printf("Fail to write the file to root directory.\n");
+		return -1;
+	}
+	//JZ: Write the content of new root inode to file system
+	lseek(fileDescriptor, 2 *BLOCK_SIZE, SEEK_SET);
+	write(fileDescriptor, &rootInode, 64);
 	printf("Successfully add file to root directory\n");
 	return 1;
 }
@@ -466,6 +543,7 @@ int cpout(char *v6file, char *externalfile){
 	int iNum;
 	int flag = 0;
 	inode_type rootinode;
+	printfile();
 	lseek(fileDescriptor, 2 * BLOCK_SIZE, SEEK_SET);
 	read(fileDescriptor, &rootinode, 64);
 	//search through the root directory to find the file
@@ -476,6 +554,7 @@ int cpout(char *v6file, char *externalfile){
 			if(flag == 1) break;
 			read(fileDescriptor, &direct, 16);
 			if(strcmp(v6file, direct.filename) == 0){
+				//printf(" %d, %d", i, j);
 				printf("Found file %s with i_number %d.\n", v6file, direct.inode);
 				iNum = direct.inode;
 				flag = 1;
