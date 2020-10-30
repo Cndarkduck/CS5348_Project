@@ -1,19 +1,39 @@
-/***********************************************************************
+/*
+ Author: Jinglun Zhang
+ UTD ID: 2021543942
+ Collaborator/Team partner: Yongli Shan
+ UTD ID: 2021541803
+ Prof.S Venkatesan
+ Project-2
  
- 
+ Modifications include
+ int savesuper_block(); //A function to update superblock if it's modified 
+ int printfile();//A function to print the file names in the root directory
+ int cpin(char *externalfile, char *v6_file);//copy externalFile to V6 internal file
+ int allocateData(); //allocate block to write data
+ int allocateIno(); // allocate inode to make new fiel or directory
+ int addToRoot(int inodeno, char* fileN); //Add dir_type with inodeno and fileN to root directory
+ int cpout(char *v6file, char *externalfile);//copy internal V6 file to external file and save
+ Also change codes provided by instructor.
  
  This program allows user to do two things: 
    1. initfs: Initilizes the file system and redesigning the Unix file system to accept large 
       files of up tp 4GB, expands the free array to 152 elements, expands the i-node array to 
       200 elemnts, doubles the i-node size to 64 bytes and other new features as well.
    2. Quit: save all work and exit the program.
+   3. cpin: Copy external file to internal v6 file.
+   4. cpout: Copyt internal v6 file to external file.
    
  User Input:
      - initfs (file path) (# of total system blocks) (# of System i-nodes)
      - q
+	 - cpin (external file path) (internal file path)
+	 - cpout (internal file path) (external file path)
      
  File name is limited to 14 characters.
- ***********************************************************************/
+ Compilation: gcc project2_jz.c -o project2.out
+ Run using: ./project2.out
+ */
 
 #include<stdio.h>
 #include<fcntl.h>
@@ -74,8 +94,6 @@ const unsigned short dir_flag = 040000;
 const unsigned short dir_large_file = 010000;
 const unsigned short dir_access_rights = 000777; // User, Group, & World have all access privileges 
 const unsigned short INODE_SIZE = 64; // inode has been doubled
-//int inodeNum;  //JZ: New added variable to record the size of inodes array when requesting less than 200 inodes at the initialization
-//int realInode; //JZ: New added variable to record the number of inodes when requesting less than 200 inodes at the initialization
 
 int initfs(char* path, unsigned short total_blcks,unsigned short total_inodes);
 void add_block_to_free_list( int blocknumber , unsigned int *empty_buffer );
@@ -309,6 +327,7 @@ void create_root() {
   write(fileDescriptor, &root, 16);
 }
 /*JZ:Method get from Yongli*/
+//A function to update superblock if it's modified
 int savesuper_block() {
     superBlock.time[0] = (unsigned int)time(NULL);
     lseek(fileDescriptor, BLOCK_SIZE, SEEK_SET);
@@ -340,82 +359,11 @@ int printfile(){
 	printf("\n");
 	return 1;
 }
-int cpin(char *externalfile, char *v6_file){
-	int fde;
-	int x;
-	fde = open(externalfile, O_RDONLY);
-	if(fde == -1){
-		printf("Fail opening external file named %s\n", externalfile);
-		return -1;
-	}
-	//Get the i_number
-	unsigned short inum = allocateIno();
-	printf("I_node number %d was allocated of new file.\n", inum);
-	if(inum == 0){
-		printf("No inode was left for allocation. Can not create new file in the system.\n");
-		return -1;
-	}
-	//Add i_number and newly created file name to root directory
-	addToRoot(inum, v6_file);
-	//increase the nlinks of rootinode by 1
-	//JZ:Change the code to prevent error when reuse
-	/*lseek(fileDescriptor, 2* BLOCK_SIZE, SEEK_SET);
-	inode_type rootInode;
-	read(fileDescriptor, &rootInode, 64);
-	rootInode.nlinks++;*/
-	//construct a new inode of the file
-	inode_type newInode;
-	//Implement the inode for the newly created file
-	newInode.flags = inode_alloc_flag | dir_access_rights;
-	newInode.nlinks = 1;
-	newInode.uid = 0;
-	newInode.gid = 0;
-	int fileRead;
-	char fileBuffer[1024];
-	int addrIndex = 0;
-	printf("Start copying external file to file system.\n");
-	while(1){
-		fileRead = read(fde, fileBuffer, 1024);
-		if(fileRead > 0){
-			printf("Read %d bytes from external file.\n", fileRead);
-			//allocate a data block for the file
-			int dataIndex = allocateData();
-			printf("Get data_block with index %d for copying data.\n", dataIndex);
-			//fill the addr[addrIndex] using new data block#
-			newInode.addr[addrIndex] = dataIndex;
-			/*printf("Filling %dth cell of address array.\n", addrIndex);*/
-			//fill the data block just be allocated with 
-			lseek(fileDescriptor, BLOCK_SIZE * dataIndex, SEEK_SET);
-			//printf("Go to data block.\n");
-			write(fileDescriptor, fileBuffer, BLOCK_SIZE);
-			/*printf("Write to data block.\n");*/
-			//calculate the size of the file when reaching the end of the file
-		}
-		if(fileRead < BLOCK_SIZE){
-			int totalSize = addrIndex * BLOCK_SIZE + fileRead;
-			newInode.size = totalSize;
-			printf("Finish copying external file %s to the file %s. The size of the files are %d.\n", externalfile, v6_file, totalSize);
-			break;
-		}
-		addrIndex++;
-	}
-	newInode.actime[0] = 0;
-	newInode.modtime[0] = 0;
-	newInode.modtime[1] = 0;
-	//write newInode to the position indicated by inum
-	lseek(fileDescriptor, 2 * BLOCK_SIZE, SEEK_SET);
-	int writeInode = inum - 1;
-	lseek(fileDescriptor, writeInode * 64, SEEK_CUR);
-	write(fileDescriptor, &newInode, 64);
-	printf("File %s was successfully created.\n", v6_file);
-	printfile();
-	printf(">> ");
-	return 1;
-}
 /*method to allocate data block for new file*/
-int allocateData(){
+unsigned int allocateData(){
 	//when getting the cell has index 0 in free array
 	int i;
+	unsigned int result;
 	if(superBlock.nfree == 1){
 		//get the block number
 		unsigned int next = superBlock.free[0];
@@ -436,10 +384,79 @@ int allocateData(){
 	}
 	//decrease the nfree by 1 and return the block# pointed by free[nfree]
 	superBlock.nfree--;
+	result = superBlock.free[superBlock.nfree];
+	superBlock.free[superBlock.nfree] = 0;
 	//JZ:Save superblock
 	savesuper_block();
-	return superBlock.free[superBlock.nfree];
+	return result;
 }
+//copy externalFile to V6 internal file
+int cpin(char *externalfile, char *v6_file){
+	int fde;
+	int x;
+	fde = open(externalfile, O_RDONLY);
+	if(fde == -1){
+		printf("Fail opening external file named %s\n", externalfile);
+		return -1;
+	}
+	//Get the i_number
+	unsigned short inum = allocateIno();
+	printf("I_node number %d was allocated of new file.\n", inum);
+	if(inum == 0 || inum == -1){
+		printf("No inode was left for allocation. Can not create new file in the system.\n");
+		return -1;
+	}
+	//Add i_number and newly created file name to root directory
+	if(addToRoot(inum, v6_file) == -1){
+		printf("Error when writing to root directory.\n");
+		return -1;
+	}
+	//construct a new inode of the file
+	inode_type newInode;
+	//Implement the inode for the newly created file
+	newInode.flags = inode_alloc_flag | dir_access_rights;
+	newInode.nlinks = 1;
+	newInode.uid = 0;
+	newInode.gid = 0;
+	int fileRead;
+	char fileBuffer[1024];
+	int addrIndex = 0;
+	printf("Start copying external file to file system.\n");
+	while(1){
+		fileRead = read(fde, fileBuffer, 1024);
+		if(fileRead > 0){
+			printf("Read %d bytes from external file.\n", fileRead);
+			//allocate a data block for the file
+			unsigned int dataIndex = allocateData();
+			//fill the addr[addrIndex] using new data block#
+			newInode.addr[addrIndex] = dataIndex;
+			//fill the data block just be allocated with 
+			lseek(fileDescriptor, BLOCK_SIZE * dataIndex, SEEK_SET);
+			write(fileDescriptor, fileBuffer, BLOCK_SIZE);		
+		}
+		if(fileRead < BLOCK_SIZE){
+			//calculate the size of the file when reaching the end of the file
+			int totalSize = addrIndex * BLOCK_SIZE + fileRead;
+			newInode.size = totalSize;
+			printf("Finish copying external file %s to the file %s. The size of the files are %d bytes.\n", externalfile, v6_file, totalSize);
+			break;
+		}
+		addrIndex++;
+	}
+	newInode.actime[0] = 0;
+	newInode.modtime[0] = 0;
+	newInode.modtime[1] = 0;
+	//write newInode to the position indicated by inum
+	lseek(fileDescriptor, 2 * BLOCK_SIZE, SEEK_SET);
+	int writeInode = inum - 1;
+	lseek(fileDescriptor, writeInode * 64, SEEK_CUR);
+	write(fileDescriptor, &newInode, 64);
+	printf("File %s was successfully created.\n", v6_file);
+	printfile();
+	printf(">> ");
+	return 1;
+}
+
 /*method to allocate inode for new file, return the # of inode being allocated*/
  //JZ: Method for allocating inode when superBlock.ninode == 0.
  int allocateIno (){
@@ -460,17 +477,7 @@ int allocateData(){
 				superBlock.inode[superBlock.ninode] = i;
 				superBlock.ninode++;
 			}
-		}
-		/*for(i = 1; i <= realInode; i++){
-			read(fileDescriptor, &curInode, 64);
-			if(curInode.flags & 0100000 == 0){
-				superBlock.inode[superBlock.ninode] = i;  
-				superBlock.ninode++;
-				if(superBlock.ninode >= inodeNum)
-					break;
-			}
-		}*///JZ:Deleted
-		
+		}	
 	}
 	if(superBlock.ninode == 0){
 		printf("Run out off inode. Exiting.\n");
@@ -480,7 +487,7 @@ int allocateData(){
 	savesuper_block();//JZ: Change according to YS
 	return superBlock.inode[superBlock.ninode];
 }
-
+//Add dir_type with inodeno and fileN to root directory
 int addToRoot(int inodeno, char* fileN){
 	int fileFlag;
 	int i, j;
@@ -537,6 +544,7 @@ int addToRoot(int inodeno, char* fileN){
 	printf("Successfully add file to root directory\n");
 	return 1;
 }
+//copy internal V6 file to external file and save
 int cpout(char *v6file, char *externalfile){
 	int i, j;
 	dir_type direct;
@@ -554,7 +562,6 @@ int cpout(char *v6file, char *externalfile){
 			if(flag == 1) break;
 			read(fileDescriptor, &direct, 16);
 			if(strcmp(v6file, direct.filename) == 0){
-				//printf(" %d, %d", i, j);
 				printf("Found file %s with i_number %d.\n", v6file, direct.inode);
 				iNum = direct.inode;
 				flag = 1;
@@ -584,39 +591,8 @@ int cpout(char *v6file, char *externalfile){
 	int num_bytes;//
 	int blockNum = currentInode.size / 1024;//
 	int remainingBytes = currentInode.size % 1024;//
-	/*int blockNum = currentInode.size / 1024;
-	int remainingBytes = currentInode.size % 1024;
-	char fileBuffer[BLOCK_SIZE];
-	for(i = 0; i < blockNum; i++){
-		int num_bytes;
-		int bytes_write;
-		printf("Current # of data_block to be copied to external file is %d.\n", currentInode.addr[i]);
-		lseek(fileDescriptor, BLOCK_SIZE * (currentInode.addr[i]), SEEK_SET);
-		num_bytes = read(fileDescriptor, fileBuffer, 1024);
-		printf("Writing %d number of bytes to external file.", num_bytes);
-		if(num_bytes == 0) break;
-		if(num_bytes > 0){
-			bytes_write = write(externalfd, fileBuffer, num_bytes);
-			if(bytes_write <= 0){
-				printf("Error when copying xv6 file to external file.\n");
-				return -1;
-			}
-		}
-	}
-	char remainBuffer[BLOCK_SIZE];
-	printf("Remaining bytes are %d.\n", remainingBytes);
-	int remain;
-	if(remainingBytes != 0){
-		lseek(fileDescriptor, BLOCK_SIZE * (currentInode.addr[blockNum]), SEEK_SET);
-		read(fileDescriptor, remainBuffer, 1024);
-		printf("%s\n", remainBuffer);
-		remain = write(externalfd, remainBuffer, strlen(remainBuffer));
-		printf("Copying %d remaining file to external file. The size of the buffer is %d.\n", remain, strlen(remainBuffer));
-	}*/
-	//JZ: Trying to streamline the coping process
 	i = 0;
 	while(1){
-		printf("Addr is %d\n", currentInode.addr[i]);
 		if(currentInode.addr[i] == 0)
 			break;
 		lseek(fileDescriptor, BLOCK_SIZE * (currentInode).addr[i], SEEK_SET);
