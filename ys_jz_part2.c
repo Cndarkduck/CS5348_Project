@@ -769,11 +769,19 @@ int currentIno = 1; //JZ: The inode# of current working directory
 int removeFile(char * filePath){
 	int parentIno = 0;
 	int fileIno = 0;
-	int abOrRe = (filePath[0] == '/') ? 1 : currentIno; 
-	if((parentIno = getParentIno(filePath, abOrRe)) == 0)
+	int abOrRe = 0;
+	if(currentIno == 1)
+		abOrRe = 1;
+	else 
+		abOrRe = (filePath[0] == '/') ? 1 : currentIno; 
+	char fileCpy[strlen(filePath) + 10];
+	strcpy(fileCpy, filePath);
+	if((parentIno = getParentIno(fileCpy, abOrRe)) == 0)
 		return 0;
 	char splitter [2] = "/";
-	char * next = strtok(filePath, splitter);
+	char pathCopy[strlen(filePath) + 10];
+	strcpy(pathCopy, filePath);
+	char * next = strtok(pathCopy, splitter);
 	char fPath[14];
 	while(next != NULL){
 		strcpy(fPath, next);
@@ -787,7 +795,6 @@ int removeFile(char * filePath){
 
 //Function to add an directory based on the path
 int mkdir(char * path){
-	char newPath [200];
 	char *input;
 	//Check if the path is valid or not
 	while(!checkPath(path)){
@@ -799,6 +806,7 @@ int mkdir(char * path){
 		}
 		strcpy(path, input);
 	}
+	char newPath [strlen(path) + 10];
 	strcpy(newPath, path);
 	char splitter [2] = "/";		
 	int parentIno = 0;
@@ -838,23 +846,23 @@ int cd(char * path){
 }
 //ys_cpin
 int cpin(char *externalFile, char *v6File) {
-	int exFileFd = open(externalFile, O_RDONLY);
-	if(exFileFd == -1){
+    int exFileFd = open(externalFile, O_RDONLY);
+    if(exFileFd == -1){
 		printf("Fail opening external file named %s\n", externalFile);
 		return 0;
-	}
+    }
     char new_name[14];    
     const char s[2] = "/";
     char * token;
-    char v6[strlen(v6File)]; //test
+    char v6[strlen(v6File) + 10]; //test
     strcpy(v6, v6File);
-	int abOrRe = (v6File[0] == '/')? 1: currentIno; //JZ
-	int parentIno = 0; //JZ
-	if((parentIno = getParentIno(v6File, abOrRe)) == 0)//JZ
-		return 0; //JZ
+	int abOrRe = (v6File[0] == '/')? 1: currentIno;
+	int parentIno = 0;
+	if((parentIno = getParentIno(v6File, abOrRe)) == 0)
+		return 0; 
     inode_type v6fileInode;
 	int newFileInodeNum = allocinode();
-	printf("Inode %d was allocated for the new file.\n", v6fileInode);
+	printf("Inode %d was allocated for the new file.\n", newFileInodeNum);
     /*dir_type newdir;
 
     strcpy(newdir.filename, new_name);
@@ -975,11 +983,13 @@ int cpout(char* internal_path, char* external_path){
 //List files and directories in current working directory
 int list(){
 	printf("The inode # of currently working directory is %d.\n", currentIno);
+	//Go to and fetch the inode of currently working directory
 	lseek(fileDescriptor, 2 * BLOCK_SIZE + (currentIno - 1) * INODE_SIZE, SEEK_SET);
 	inode_type curInode;
 	dir_type curDir;
 	read(fileDescriptor, &curInode, INODE_SIZE);
 	for(int i = 0; i < ADDR_SIZE; i++){
+		//Continue when one entry contnet of the address array is 0
 		if(curInode.addr[i] == 0)
 			continue;
 		lseek(fileDescriptor, BLOCK_SIZE * curInode.addr[i], SEEK_SET);
@@ -996,13 +1006,15 @@ int list(){
 	printf("\n");
 	return 1;
 }
-//
+//Function to remove file/directory from its parent directory
 int removeFromParent(char *file, int parentIno){
 	inode_type ino;
 	dir_type dir;
 	lseek(fileDescriptor, 2 * BLOCK_SIZE + (parentIno - 1) * INODE_SIZE, SEEK_SET);
 	read(fileDescriptor, &ino, INODE_SIZE);
 	for(int i = 0; i < ADDR_SIZE; i++){
+		if(ino.addr[i] == 0)
+			continue;
 		lseek(fileDescriptor, ino.addr[i] * BLOCK_SIZE, SEEK_SET);
 		for(int j = 0; j < BLOCK_SIZE / DIR_SIZE; j++){
 			read(fileDescriptor, &dir, 16);
@@ -1015,7 +1027,7 @@ int removeFromParent(char *file, int parentIno){
 			}
 		}
 	}
-	printf("Can not find file in its parent directory.\n");
+	printf("Can not find file %s in its parent directory with inode # %d.\n", file, parentIno);
 	return 0;
 }
 //Function to check if the entry pointed by ino is a directory or a file
@@ -1024,22 +1036,22 @@ int isDir(int ino){
 	inode_type inode;
 	read(fileDescriptor, &inode, INODE_SIZE);
 	if((inode.flags & dir_flag) == 0)
-			return 0;
+		return 0;
 	return 1;
 }
 //Check if the directory/file name is within 14 characters
 int checkPath(char * path){
-	//char str[200];
-	char str[strlen(path)];//test
-	char *next;
+	char str[strlen(path) + 10];
 	strcpy(str, path);
 	char splitter[2] = "/"; 
-	char *curr = strtok(str, splitter);
-	while(curr != NULL){
-		if((next = strtok(NULL, splitter)) == NULL)
-			break;
-		curr = next;
+	char *next;
+	next = strtok(str, splitter);
+	char curr[16];
+	while(next != NULL){
+		strcpy(curr, next);
+		next = strtok(NULL, splitter);	
 	}
+	//Now curr is the last file/directory in the given path
 	if(strlen(curr) > 14){
 			printf("The length of the file/directory name is larger than 14 characters.\n");
 			return 0;
@@ -1048,10 +1060,10 @@ int checkPath(char * path){
 }
 //Function to get the inode of the parent directory of the last entry in path
 int getParentIno(char * path, int parentIno){
-	printf("Getting the inode # of parent directory from %d, %s: \n", parentIno, path);
+	printf("Getting the inode # of parent directory from inode %d, %s: \n", parentIno, path);
 	int pIno = parentIno;
-	char pathCopy[strlen(path)]; //test
-	char pathCopy2[strlen(path)]; //test
+	char pathCopy[strlen(path) + 10]; //test
+	char pathCopy2[strlen(path) + 10]; //test
 	strcpy(pathCopy, path);
 	strcpy(pathCopy2,path);
 	char splitter [2] = "/";
@@ -1060,14 +1072,16 @@ int getParentIno(char * path, int parentIno){
 	int first = 1;
 	char *pt1 = NULL;
 	char *pt2 = NULL;
+	printf("Prev pathCopy: %s.\n", pathCopy);
 	next = strtok_r(pathCopy, splitter, &pt1);
-	//next = strtok_r(NULL, splitter, &pt1);
+	printf("pathCopy: %s.\n", pathCopy);
+	printf("pathCopy2: %s.\n", pathCopy2);
+	printf("Next: %s.\n", next);
 	while(1){
 		//Break when current entry is the last entry in the path
 		next = strtok_r(NULL, splitter, &pt1);
-		if(next == NULL){
+		if(next == NULL)
 			break;
-		}
 		if(first){
 			curDir = strtok_r(pathCopy2, splitter, &pt2);
 			first = 0;
@@ -1096,7 +1110,7 @@ int getParentIno(char * path, int parentIno){
 int getFileIno(char * path, int parentIno){
 	int fileIno = parentIno;
 	char splitter [2] = "/";
-	char pathCp[strlen(path)]; //test
+	char pathCp[strlen(path) + 10]; //test
 	strcpy(pathCp, path); //test
 	char * curDir = strtok(pathCp, splitter);
 	while(curDir != NULL){
@@ -1106,6 +1120,7 @@ int getFileIno(char * path, int parentIno){
 		}
 		curDir = strtok(NULL, splitter);
 	}
+	printf("Find file/directory at inode # %d.\n", fileIno);
 	return fileIno;
 }
 //Add dir_type with inodeno and fileN to parent directory 
@@ -1113,10 +1128,13 @@ int addToDir(int inodeno, char* fileN, int parentIno){
 	int fileFlag = 0;
 	dir_type direct;
 	inode_type parentInode;
-	int newData = 0;//JZ:
+	int newData = 0;
+	//Get the inode of parent directory
 	lseek(fileDescriptor, 2 * BLOCK_SIZE + (parentIno - 1) * INODE_SIZE, SEEK_SET);
 	read(fileDescriptor, &parentInode, INODE_SIZE);
 	for(int i = 0; i < ADDR_SIZE; i++){
+		if(parentInode.addr[i] == 0)
+			continue;
 		lseek(fileDescriptor, BLOCK_SIZE * parentInode.addr[i], SEEK_SET);
 		for(int j = 0; j < BLOCK_SIZE / INODE_SIZE; j++){
 			read(fileDescriptor, &direct, 16);
@@ -1127,13 +1145,14 @@ int addToDir(int inodeno, char* fileN, int parentIno){
 		}
 	}
 	printf("There is no file with same name in the file system. Continue...\n");
+	//Increase the nlinks field of parentInode by 1
 	parentInode.nlinks++;
 	dir_type currentDir;
 	for(int i = 0; i < ADDR_SIZE; i++){
-		//JZ: Escape the two-layer loop when fileFlag is true
+		//Escape the two-layer loop when fileFlag is true
 		if(fileFlag)
 			break;
-		//JZ: When the first data block of root directory has been used up, allocate new data block to root directory.
+		//When the first data block of root directory has been used up, allocate new data block to root directory.
 		if(parentInode.addr[i] == 0){
 			newData = allocblock();
 			parentInode.addr[i] = newData;
@@ -1166,10 +1185,10 @@ int addToDir(int inodeno, char* fileN, int parentIno){
 int writeDir(int selfIno, int parentIno){
 	//Allocate data block for new directory
 	int newData = allocblock();
-	printf("Data block %d was allocated for new directory.", newData);
+	printf("Data block %d was allocated for new directory/file.\n", newData);
 	lseek(fileDescriptor, 2 * BLOCK_SIZE + (selfIno - 1) * INODE_SIZE, SEEK_SET);
 	inode_type newinode;
-	newinode.flags = inode_alloc_flag | dir_flag |dir_access_rights;   		// flag for root directory 
+	newinode.flags = inode_alloc_flag | dir_flag |dir_access_rights; // flag for inode of the file 
 	newinode.nlinks = 1; 
 	newinode.uid = 0;
 	newinode.gid = 0;
@@ -1200,5 +1219,3 @@ int writeDir(int selfIno, int parentIno){
 /////////////////////////////////////////////////////
 //*The end*//
 ////////////////////////////////////////////////////////
-
-
