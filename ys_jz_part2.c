@@ -107,7 +107,8 @@ typedef struct {
 
 dir_type root;
 
-int fileDescriptor;		//file descriptor 
+int fileDescriptor;		//file descriptor
+int currentIno = 1; //JZ: The inode# of current working directory
 const unsigned short inode_alloc_flag = 0100000;
 const unsigned short dir_flag = 040000;
 const unsigned short dir_large_file = 010000;
@@ -574,8 +575,6 @@ void clear_block(int index)
     write(fileDescriptor, &empty, BLOCK_SIZE);
     printf("Block #%d was purged for reuse.\n", index);
 }
-
-int currentIno = 1; //JZ: The inode# of current working directory
 
 //Get the inode number of 'filePath' and delete all its content
 int removeFile(char * filePath){
