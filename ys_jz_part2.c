@@ -906,7 +906,7 @@ int isEmptyDir(int dirIno){
 		return 1;
     return 0;
 }
-//Check if the directory/file name is within 14 characters
+//Check if the directory/file name is less than 14 characters
 int checkPath(char * path){
 	char str[strlen(path) + 1];
 	//printf("3\n");
@@ -920,8 +920,8 @@ int checkPath(char * path){
 		next = strtok(NULL, splitter);	
 	}
 	/*Now curr is the last file/directory in the given path*/
-	if(strlen(curr) > 14){
-			printf("The length of the file/directory name should within 14 characters.\n");
+	if(strlen(curr) > 13){
+			printf("The length of the file/directory name should less than 14 characters.\n");
 			return 0;
 	}
 	return 1;
