@@ -1,18 +1,20 @@
 /***********************************************************************
  Modified by, Author : Yongli Shan
+ Modified by, Author : Yongli Shan
  UTD-ID: 2021541803
  CS5348.001 Operating  Systems
  Professor: S. Venkatesan
- Project 2: Unix V6 filesystem
+
+ Project 2, part2: Unix V6 filesystem
 *******************************************
  Collaborator/Team partner: Jinglun Zhang
  UTD-ID: 2021543942
- Date: 10/29/20
+ Date: 11/21/20
 *******************************************
 Compilation:
--$ gcc -std=c99 -o part2.out ys_jz_part2.c
+-$ gcc -std=c99 -o fsaccess fsaccess_Yongli_CS5348_project2_2.c
 Run using:
--$ ./part2.out
+-$ ./fsaccess
 ********************************************
 Modifications include
 int savesuper_block(); //a function to update superblock if it's modified 
@@ -20,11 +22,21 @@ void clear_block(int index);// Clear a block not in use anymore
 void clear_inode(int index);// Clear an inode not in use anymore
 int cpin(char* externalFile, char* v6File);//copy externalFile to V6 internal file
 int cpout(char* internal_path, char* external_path);//copy internal V6 file to external file and save it
-int find_position_of_dir_entry_for_this_file(char* path);//find the position in the file system to write in new dir
-int get_inode_number_with_full_path(char* path);//get internal inode position of a file or a path
 int get_inode_number(char* filename, int inode_number);//recursive function to browse directory layers and find file
 unsigned int allocblock(); // allocate block to write data
 int allocinode(); // allocate inode to make new fiel or directory
+int removeFile(char * filePath);//Get the inode number of 'filePath' and delete all its content
+int mkdir(char * path);//Function to add an directory based on the path
+int cd(char * path);//Function to change the working directory
+int list();//List files and directories in current working directory
+int removeFromParent(char * file, int parentIno);//With known Parent Inode, search file or dir items in it, if there is a hit, zeroed out
+int isDir(int ino);//Function to check if the entry pointed by ino is a directory or a file
+int isEmptyDir(int dirIno);//Function to check if the entry pointed by ino is an empty directory
+int checkPath(char * path);//Check if the directory/file name is within 14 characters
+int getParentIno(char * path, int parentIno);//Function to get the inode of the parent directory of the last entry in path
+int getFileIno(char * path, int parentIno);//Get the inode number of the file pointed by path
+int addToDir(int inodeno, char* fileN, int parentIno);//Add dir_type with inodeno and fileN to parent directory 
+int writeDir(int selfIno, int parentIno);//Function to write self directory and parent directory to data block and write the inode of the directory to file system
 ************************************************** 
  This program allows user to do two things: 
    1. initfs: Initilizes the file system and redesigning the Unix file system to accept large 
@@ -111,8 +123,6 @@ void clear_block(int index);
 void clear_inode(int index);
 int cpin(char* externalFile, char* v6File);
 int cpout(char* internal_path, char* external_path);
-int find_position_of_dir_entry_for_this_file(char* path);
-int get_inode_number_with_full_path(char* path);
 int get_inode_number(char* filename, int inode_number);
 unsigned int allocblock();
 int allocinode();
@@ -123,6 +133,7 @@ int cd(char * path);
 int list();
 int removeFromParent(char * file, int parentIno);
 int isDir(int ino);
+int isEmptyDir(int dirIno);
 int checkPath(char * path);
 int getParentIno(char * path, int parentIno);
 int getFileIno(char * path, int parentIno);
@@ -133,7 +144,6 @@ int writeDir(int selfIno, int parentIno);
 //*The main() function to call initfs, cpin, cpout and q commands*//
 ////////////////////////////////////////////////////////////////////////////
 int main() {
- 
   char input[INPUT_SIZE];
   char *splitter;
   unsigned int numBlocks = 0, numInodes = 0;
@@ -386,7 +396,7 @@ void create_root() {
   inode.nlinks = 0; 
   inode.uid = 0;
   inode.gid = 0;
-  inode.size = INODE_SIZE;
+  inode.size = 2 * DIR_SIZE;
   inode.addr[0] = root_data_block;
   
   for( i = 1; i < ADDR_SIZE; i++ ) {
@@ -527,81 +537,6 @@ int get_inode_number(char* filename, int inode_number) {
     printf("Internal file %s doesn't not exist in parent inode #%d \n", filename, inode_number);
     return 0;
 }
-
-//////////////////////////////////////////////////////////////////////////////////////////////////////////
-//*get_inode_number()  function*//
-//*Recursive function to browse directory layers and find directory inode using its path name*//
-//////////////////////////////////////////////////////////////////////////////////////////////////////////
-int get_inode_number_with_full_path(char* inpath){
-
-    const char s[2] = "/";
-    char *token;
-
-    char path[14];
-    strcpy(path, inpath);
-
-    token = strtok(path,s);
-    int i = 1;
-    while (token != NULL)
-    {
-        if(get_inode_number(token,i) == 0)
-            return 0;
-
-        i= get_inode_number(token,i);
-        token = strtok(NULL,s);
-    }
-    return i;
-}
-
-
-//////////////////////////////////////////////////////////////////////////////////////////////////////////
-//*find_position_of_dir_entry_for_this_file()  function*//
-//*Find the position in the file system to write in new dir, and return the offset*//
-//////////////////////////////////////////////////////////////////////////////////////////////////////////
-int find_position_of_dir_entry_for_this_file(char *inpath){
-    char new_name[14];
-    const char s[2] = "/";
-    char *token;
-
-    char path[14];
-    strcpy(path, inpath);
-
-    token = strtok(path,s);
-    int i = 1;
-    int j;
-    while (token != NULL)
-    {
-        j = i;
-        if(i==0)
-            printf("Invalid path!\n");        
-        i= get_inode_number(token,i);  // i dir i-node number, j parent dir inode number.        
-        strcpy(new_name, token);              // new_name is the dir name.
-        token = strtok(NULL,s);
-    }
-
-    dir_type dir_entry;
-    int offset;
-    lseek(fileDescriptor, 2*BLOCK_SIZE + (j-1)*INODE_SIZE + 12, SEEK_SET);//+ point to addr[0] of parent directory
-    read(fileDescriptor, &offset, 4);//read the data block location of the parent and find the file
-    int k =0;
-    for (k = 0; k< BLOCK_SIZE/DIR_SIZE; k++)
-    {
-        lseek(fileDescriptor, offset*BLOCK_SIZE+ k*16, SEEK_SET);//*16 is the directory information
-        read(fileDescriptor, &dir_entry, 16);
-        if(dir_entry.inode ==0){
-          return offset*BLOCK_SIZE+ k*16;
-          }           
-        
-        else if (strcmp(dir_entry.filename, new_name) == 0 )
-        {
-            printf("The file: %s is found at inode# %d\n",new_name,i);
-            clear_inode(i);
-            return offset*BLOCK_SIZE+ k*16;            
-        }
-    }
-        
-}
-
 //////////////////////////////////////////////////////////////////////////////////////////////////////////
 //*clear_inode()  function*//
 //*Purge out an inode not in use,and also zero out its addr[] list and associated data blocks based on its index*//
@@ -637,9 +572,6 @@ void clear_block(int index)
     char empty[BLOCK_SIZE] = {0};
     lseek(fileDescriptor, index*BLOCK_SIZE, SEEK_SET);
     write(fileDescriptor, &empty, BLOCK_SIZE);
-	//JZ: Use the method add_block_to_free_list() to free the data block  
-	//unsigned int emptyBuffer [BLOCK_SIZE / 4] = {0};
-	//add_block_to_free_list(index,emptyBuffer);
     printf("Block #%d was purged for reuse.\n", index);
 }
 
@@ -747,7 +679,7 @@ int cpin(char *externalFile, char *v6File) {
 		printf("Your input path for cpin is not valid, please type a new path or enter 'q' to quit.\n>>");
 		scanf("%s", input);
 		if(strcmp(input, "q") == 0){
-			printf("Exiting from mkdir command..\n");
+			printf("Exiting from cpin command..\n");
 			return 0;
 		}
 		if(checkPath(input)){
@@ -837,8 +769,8 @@ int cpout(char* internal_path, char* external_path){
 	int bytes_write = 0;//
 	int totalBytes = 0;//
 	int num_bytes = 0;//
-	int blockNum = current_inode.size / 1024;//
-	int remainingBytes = current_inode.size % 1024;//
+	int blockNum = current_inode.size / BLOCK_SIZE;
+	int remainingBytes = current_inode.size % BLOCK_SIZE;
 	int i = 0;
 	while(1){
 		if(current_inode.addr[i] == 0)
@@ -859,21 +791,6 @@ int cpout(char* internal_path, char* external_path){
 		}
 		i++;
 	}
-    /*for (int i = 0; i < ADDR_SIZE; i++)
-    {
-        //printf("checkpoint: block address read: %d", inode.addr[i]);
-        if (current_inode.addr[i] == 0)
-        {
-          printf("Copying file out, the last block #%d\n", current_inode.addr[i-1]);
-          break;
-        }
-        lseek(fileDescriptor, current_inode.addr[i] * BLOCK_SIZE, SEEK_SET);
-        read(fileDescriptor, &buffer, BLOCK_SIZE);
-        int buffersize = strlen(buffer);
-        printf("Writing %d number of bytes to external file.\n", buffersize);
-        lseek(fd1, i*BLOCK_SIZE, SEEK_SET);
-        write(fd1, &buffer, buffersize);
-    }*/
 	printf("Finishing copying %d bytes to external file.\n", totalBytes);
 	////
     close(fd1);
@@ -893,8 +810,8 @@ int list(){
 		if(curInode.addr[i] == 0)
 			continue;
 		lseek(fileDescriptor, BLOCK_SIZE * curInode.addr[i], SEEK_SET);
-		for(int j = 0; j < BLOCK_SIZE / 16; j++){
-			read(fileDescriptor, &curDir, 16);
+		for(int j = 0; j < BLOCK_SIZE / DIR_SIZE; j++){
+			read(fileDescriptor, &curDir, DIR_SIZE);
 			if(curDir.inode != 0){
 				printf("%s    ", curDir.filename);
 			}
@@ -912,28 +829,40 @@ int removeFromParent(char *file, int parentIno){
 	dir_type dir;
 	lseek(fileDescriptor, 2 * BLOCK_SIZE + (parentIno - 1) * INODE_SIZE, SEEK_SET);
 	read(fileDescriptor, &ino, INODE_SIZE);
-	for(int i = 0; i < ADDR_SIZE; i++){
+    int i;
+	for(i = 0; i < ADDR_SIZE; i++){
 		if(ino.addr[i] == 0)
 			continue;
 		lseek(fileDescriptor, ino.addr[i] * BLOCK_SIZE, SEEK_SET);
-		for(int j = 0; j < BLOCK_SIZE / DIR_SIZE; j++){
-			read(fileDescriptor, &dir, 16);
+        int j;
+		for(j = 0; j < BLOCK_SIZE / DIR_SIZE; j++){
+			read(fileDescriptor, &dir, DIR_SIZE);
 			if(strcmp(dir.filename, file) == 0){
-				printf("Found the file to be deleted in its parent directory.\n");
-				if(isDir(dir.inode)){
-					printf("Not allowed to delete directory entry!\n");
-					return 0;
-				}
-				/*isDir() modify the filedescriptor, so need to redirect fileDescriptor to right position.*/
-				lseek(fileDescriptor, BLOCK_SIZE * ino.addr[i] + j * DIR_SIZE, SEEK_SET);
-				char dirBuffer[16] = {0};
-				//lseek(fileDescriptor, -16, SEEK_CUR);
-				write(fileDescriptor, dirBuffer, 16);
-				return dir.inode;
-			}
-		}
-	}
-	printf("Can not find file %s in its parent directory with inode # %d.\n", file, parentIno);
+                if(isDir(dir.inode)) {
+                    printf("Found the directory to be deleted in its parent directory.\n");
+                	if(!isEmptyDir(dir.inode)){
+                        printf("Directory is not empty, not allowed to delete!\n");//YS,remove empty directory
+					    return 0;
+                    }
+                }
+                else {
+                    printf("Found the file to be deleted in its parent directory.\n");
+                }
+			    /*isDir() modify the filedescriptor, so need to redirect fileDescriptor to right position.*/
+			    lseek(fileDescriptor, ino.addr[i] * BLOCK_SIZE + j * DIR_SIZE, SEEK_SET);
+			    char dirBuffer[16] = {0};
+			    //lseek(fileDescriptor, -DIR_SIZE, SEEK_CUR);
+			    write(fileDescriptor, dirBuffer, DIR_SIZE);
+				ino.size -= DIR_SIZE;
+				ino.nlinks--;
+				lseek(fileDescriptor, 2 * BLOCK_SIZE + (parentIno - 1) * INODE_SIZE, SEEK_SET);
+				write(fileDescriptor, &ino, INODE_SIZE);
+                //printf("testpoint2, the file/dir was found at inode %d, in parent inode %d",dir.inode, parentIno);
+			    return dir.inode;//ys
+		    }   
+	    }
+    }
+	printf("Can not find file or directory %s in its parent directory with inode # %d.\n", file, parentIno);
 	return 0;
 }
 //Function to check if the entry pointed by ino is a directory or a file
@@ -945,6 +874,38 @@ int isDir(int ino){
 	if((inode.flags & dir_flag) == 0)
 		return 0;
 	return 1;
+}
+/////////////////////////////////////////////////////////////////////////////////////////////////////////
+//*isEmptyDir()  function*//
+//* Function to check if the entry pointed by ino is an empty directory*//ys, new funciton
+//////////////////////////////////////////////////////////////////////////////////////////////////////////
+int isEmptyDir(int dirIno){
+    if(!isDir(dirIno)){
+		printf("Is not directory..\n");
+        return 0;
+    }
+    inode_type ino;
+    dir_type dir;
+	char temp[BLOCK_SIZE]; 
+	lseek(fileDescriptor, 2 * BLOCK_SIZE + (dirIno - 1) * INODE_SIZE, SEEK_SET);
+	read(fileDescriptor, &ino, INODE_SIZE);
+    /*int i;
+	for(i = 0; i < ADDR_SIZE; i++){
+		if(ino.addr[i] == 0) continue;
+        lseek(fileDescriptor, BLOCK_SIZE * ino.addr[i], SEEK_SET);
+        int j;
+		for(j = 0; j < BLOCK_SIZE / DIR_SIZE; j++){
+			read(fileDescriptor, &dir, 16);
+            //printf("block %d's  content is%s",ino.addr[i], dir.filename);
+            if(strcmp(dir.filename,".") == 0) continue;
+            else if(strcmp(dir.filename,"..") == 0) continue;
+            else if(strcmp(dir.filename, "") != 0) 
+                return 0;
+        }   
+    }*/
+	if(ino.size == 2 * DIR_SIZE)
+		return 1;
+    return 0;
 }
 //Check if the directory/file name is within 14 characters
 int checkPath(char * path){
@@ -1004,13 +965,6 @@ int getParentIno(char *path, int parentIno){
 				return 0;
 		}
 		/*Check if the entry pointed by pIno is a directory*/
-		/*lseek(fileDescriptor, 2 * BLOCK_SIZE + (pIno - 1) * INODE_SIZE, SEEK_SET);
-		inode_type cur;
-		read(fileDescriptor, &cur, 64);
-		if((cur.flags & dir_flag) == 0){
-			printf("Plain file found, while directory expected.\n");
-			return 0;
-		}*/
 		if(!isDir(pIno)){
 			printf("Plain file found, while directory expected.\n");
 			return 0;
@@ -1057,8 +1011,6 @@ int addToDir(int inodeno, char* fileN, int parentIno){
 		}
 	}
 	printf("There is no file with same name in parent directory. Continue...\n");
-	//Increase the nlinks field of parentInode by 1
-	parentInode.nlinks++;
 	dir_type currentDir;
 	for(int i = 0; i < ADDR_SIZE; i++){
 		//Escape the two-layer loop when fileFlag is true
@@ -1087,6 +1039,9 @@ int addToDir(int inodeno, char* fileN, int parentIno){
 		printf("Fail to write the file to parent directory.\n");
 		return 0;
 	}
+	//Increase the nlinks and size of parentIno
+	parentInode.nlinks++;
+	parentInode.size += DIR_SIZE;
 	//JZ: Write the content of new root inode to file system
 	lseek(fileDescriptor, 2 *BLOCK_SIZE + (parentIno - 1) * INODE_SIZE, SEEK_SET);
 	write(fileDescriptor, &parentInode, INODE_SIZE);
@@ -1104,7 +1059,7 @@ int writeDir(int selfIno, int parentIno){
 	newinode.nlinks = 1; 
 	newinode.uid = 0;
 	newinode.gid = 0;
-	newinode.size = INODE_SIZE; //?
+	newinode.size = 2 * DIR_SIZE;
 	newinode.addr[0] = newData;
 	for(int i = 1; i < ADDR_SIZE; i++ ) {
 		newinode.addr[i] = 0;
